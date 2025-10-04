@@ -1,0 +1,7 @@
+apscheduler
+python-telegram-bot
+pytz
+python-dotenv
+requests
+sqlalchemy
+alembic
