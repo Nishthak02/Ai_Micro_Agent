@@ -494,3 +494,84 @@
 2025-10-05 01:17:47,614 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
 2025-10-05 01:18:47,797 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
 2025-10-05 01:18:47,864 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 14:52:41,993 - INFO - Service started successfully
+2025-10-05 14:52:42,003 - ERROR - ⚠️ Could not register task 1: 'str' object has no attribute 'add_job'
+2025-10-05 14:52:42,003 - ERROR - ⚠️ Could not register task 2: 'str' object has no attribute 'add_job'
+2025-10-05 14:53:42,980 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 14:53:43,041 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 14:54:42,923 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 14:54:44,082 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 14:59:43,952 - INFO - Service started successfully
+2025-10-05 14:59:43,953 - ERROR - ⚠️ Could not register task 1: 'str' object has no attribute 'add_job'
+2025-10-05 14:59:43,953 - ERROR - ⚠️ Could not register task 2: 'str' object has no attribute 'add_job'
+2025-10-05 14:59:43,953 - ERROR - ⚠️ Failed to parse RRULE: invalid literal for int() with base 10: '0.5'
+2025-10-05 14:59:43,953 - ERROR - ⚠️ Could not register task 3: 'str' object has no attribute 'add_job'
+2025-10-05 14:59:43,966 - ERROR - ⚠️ Failed to parse RRULE: invalid literal for int() with base 10: '0.5'
+2025-10-05 15:00:43,980 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 15:00:44,990 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 15:00:44,998 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 15:01:43,982 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 15:01:44,892 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 15:01:45,096 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 15:02:43,996 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 15:02:45,055 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 15:02:45,056 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 15:05:38,139 - INFO - Service started successfully
+2025-10-05 15:05:38,140 - ERROR - ⚠️ Could not register task 1: 'str' object has no attribute 'add_job'
+2025-10-05 15:05:38,140 - ERROR - ⚠️ Could not register task 2: 'str' object has no attribute 'add_job'
+2025-10-05 15:05:38,140 - ERROR - ⚠️ Failed to parse RRULE: invalid literal for int() with base 10: '0.5'
+2025-10-05 15:05:38,140 - ERROR - ⚠️ Could not register task 3: 'str' object has no attribute 'add_job'
+2025-10-05 15:05:38,140 - ERROR - ⚠️ Could not register task 4: 'str' object has no attribute 'add_job'
+2025-10-05 15:05:38,153 - ERROR - ⚠️ Failed to parse RRULE: invalid literal for int() with base 10: '0.5'
+2025-10-05 15:06:38,166 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 15:06:38,167 - ERROR - Error running task 4: 'str' object has no attribute 'get'
+2025-10-05 15:06:39,097 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 15:06:39,484 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 15:07:30,405 - INFO - Service started successfully
+2025-10-05 15:07:30,406 - ERROR - ⚠️ Could not register task 1: 'str' object has no attribute 'add_job'
+2025-10-05 15:07:30,406 - ERROR - ⚠️ Could not register task 2: 'str' object has no attribute 'add_job'
+2025-10-05 15:07:30,406 - ERROR - ⚠️ Failed to parse RRULE: invalid literal for int() with base 10: '0.5'
+2025-10-05 15:07:30,406 - ERROR - ⚠️ Could not register task 3: 'str' object has no attribute 'add_job'
+2025-10-05 15:07:30,406 - ERROR - ⚠️ Could not register task 4: 'str' object has no attribute 'add_job'
+2025-10-05 15:07:30,419 - ERROR - ⚠️ Failed to parse RRULE: invalid literal for int() with base 10: '0.5'
+2025-10-05 15:08:30,438 - ERROR - Error running task 4: 'str' object has no attribute 'get'
+2025-10-05 15:08:30,439 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 15:08:31,832 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 15:08:32,156 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 21:18:49,400 - INFO - Service started successfully
+2025-10-05 21:18:49,401 - ERROR - ⚠️ Could not register task 1: 'str' object has no attribute 'add_job'
+2025-10-05 21:18:49,402 - ERROR - ⚠️ Could not register task 2: 'str' object has no attribute 'add_job'
+2025-10-05 21:18:49,402 - ERROR - ⚠️ Failed to parse RRULE: invalid literal for int() with base 10: '0.5'
+2025-10-05 21:18:49,402 - ERROR - ⚠️ Could not register task 3: 'str' object has no attribute 'add_job'
+2025-10-05 21:18:49,402 - ERROR - ⚠️ Could not register task 4: 'str' object has no attribute 'add_job'
+2025-10-05 21:18:49,402 - ERROR - ⚠️ Could not register task 5: 'str' object has no attribute 'add_job'
+2025-10-05 21:18:49,428 - ERROR - ⚠️ Failed to parse RRULE: invalid literal for int() with base 10: '0.5'
+2025-10-05 21:19:49,440 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 21:19:49,440 - ERROR - Error running task 4: 'str' object has no attribute 'get'
+2025-10-05 21:19:49,442 - ERROR - Error running task 5: 'str' object has no attribute 'get'
+2025-10-05 21:19:50,527 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 21:19:50,528 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 21:20:49,438 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 21:20:49,438 - ERROR - Error running task 5: 'str' object has no attribute 'get'
+2025-10-05 21:20:49,452 - ERROR - Error running task 4: 'str' object has no attribute 'get'
+2025-10-05 21:20:50,730 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 21:20:51,165 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 21:21:49,434 - ERROR - Error running task 4: 'str' object has no attribute 'get'
+2025-10-05 21:21:49,434 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 21:21:49,448 - ERROR - Error running task 5: 'str' object has no attribute 'get'
+2025-10-05 21:21:50,536 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 21:21:50,536 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 21:22:49,444 - ERROR - Error running task 5: 'str' object has no attribute 'get'
+2025-10-05 21:22:49,444 - ERROR - Error running task 3: 'str' object has no attribute 'get'
+2025-10-05 21:22:49,445 - ERROR - Error running task 4: 'str' object has no attribute 'get'
+2025-10-05 21:22:50,344 - INFO - ✅ Sent Telegram message to 5292005628: Drink water
+2025-10-05 21:22:50,519 - INFO - ✅ Sent Telegram message to 5292005628: Test scheduler
+2025-10-05 21:25:19,525 - INFO - Service started successfully
+2025-10-05 21:27:27,210 - INFO - Service started successfully
+2025-10-05 21:27:27,211 - ERROR - ⚠️ Could not register task 1: 'str' object has no attribute 'add_job'
+2025-10-05 21:27:30,279 - INFO - ✅ Sent Telegram message to 5292005628: Blink
+2025-10-05 21:27:32,137 - INFO - ✅ Sent Telegram message to 5292005628: Blink
+2025-10-05 21:27:33,441 - INFO - ✅ Sent Telegram message to 5292005628: Blink
+2025-10-05 21:27:35,692 - INFO - ✅ Sent Telegram message to 5292005628: Blink
+2025-10-05 21:27:37,064 - INFO - ✅ Sent Telegram message to 5292005628: Blink
+2025-10-05 21:27:38,039 - INFO - ✅ Sent Telegram message to 5292005628: Blink

@@ -1,13 +1,19 @@
-# Environment and virtual env
-.env
-.venv/
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.venv/
+.env
 
-# Database
-*.db
-
-# VS Code / OS
+# VS Code / Editors
 .vscode/
+.idea/
+
+# OS files
 .DS_Store
 Thumbs.db
+
+# Offset / temp files
+src/.tg_offset
+ai_agent.db

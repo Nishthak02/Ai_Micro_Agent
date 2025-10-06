@@ -1,4 +1,3 @@
-# src/planner.py
 import requests
 import json
 import re
@@ -19,7 +18,6 @@ def call_ollama(prompt: str):
                     if "response" in data:
                         output += data["response"]
                 except json.JSONDecodeError:
-                    # Sometimes lines are not JSON, skip
                     continue
             return output.strip()
     except Exception as e:
@@ -28,62 +26,58 @@ def call_ollama(prompt: str):
 
 
 def extract_json_from_text(text: str):
-    """
-    Try several strategies to extract a JSON object from the model's text.
-    Returns a Python dict or raises ValueError if not found/parsable.
-    """
+    """Try to extract a JSON object from Ollama output."""
     if not text:
         raise ValueError("No text to parse")
-
-    # 1) If text is exactly JSON, try it
     try:
         return json.loads(text)
     except Exception:
         pass
-
-    # 2) Try code fence with ```json ... ```
-    m = re.search(r"```json\\s*(\\{.*?\\})\\s*```", text, flags=re.DOTALL)
+    m = re.search(r"(\{(?:.|\s)*\})", text)
     if m:
-        candidate = m.group(1)
-        return json.loads(candidate)
-
-    # 3) Try any { ... } balanced extraction — find the first balanced JSON object
-    start = None
-    stack = []
-    for i, ch in enumerate(text):
-        if ch == "{":
-            if start is None:
-                start = i
-            stack.append("{")
-        elif ch == "}":
-            if stack:
-                stack.pop()
-                if not stack and start is not None:
-                    candidate = text[start:i+1]
-                    # try parsing candidate
-                    try:
-                        return json.loads(candidate)
-                    except Exception:
-                        # continue searching for another balanced range
-                        start = None
-                        stack = []
-                        continue
-
-    # 4) Try to find first line that looks like JSON after a colon
-    m2 = re.search(r"(\{(?:.|\s)*\})", text)
-    if m2:
-        try:
-            return json.loads(m2.group(1))
-        except Exception:
-            pass
-
-    # nothing worked
+        return json.loads(m.group(1))
     raise ValueError("Could not extract valid JSON from model output")
 
+
+def detect_store_and_item(text: str):
+    """
+    Naive rule-based extraction for store names and items.
+    e.g. 'Order milk every 2 days from Capital Store' →
+         {'item': 'milk', 'store': 'Capital Store'}
+    """
+    store_match = re.search(r"from\s+([A-Z][a-zA-Z0-9\s]+(?:Store|Mart|Shop|Market))", text, re.IGNORECASE)
+    item_match = re.search(r"order\s+(\w+)", text, re.IGNORECASE)
+
+    store = store_match.group(1).strip() if store_match else None
+    item = item_match.group(1).strip() if item_match else None
+    return {"item": item, "store": store}
+
+
 def build_internal_plan(plan_obj):
-    """Given parsed plan_obj with keys, return internal MCP plan for DB storage."""
+    """Return an internal MCP plan for DB storage."""
     text = plan_obj.get("text", "Reminder")
     task_type = plan_obj.get("task_type", "reminder")
+    extra = plan_obj.get("extra", {})
+
+    if task_type == "order":
+        # message the store instead of user
+        store_chat_id = extra.get("store_chat_id", "STORE_CHAT_PLACEHOLDER")
+        return {
+            "plan": task_type,
+            "calls": [
+                {
+                    "tool": "orders.place_order",
+                    "args": {
+                        "user_chat_id": TELEGRAM_CHAT_ID,
+                        "store_chat_id": store_chat_id,
+                        "item": extra.get("item", text),
+                        "store": extra.get("store", "Unknown Store"),
+                    },
+                }
+            ],
+        }
+
+    # default reminder
     return {
         "plan": task_type,
         "calls": [
@@ -94,62 +88,70 @@ def build_internal_plan(plan_obj):
         ],
     }
 
+
 def parse_command(command_text: str, user_id: int = 1):
     """Interpret a natural-language command and save as a structured task."""
     system_prompt = (
         "You are a JSON-only generator. Convert the user's instruction into a single JSON object "
         "and output only that JSON object and nothing else. The JSON must have exactly these keys: "
-        "\"task_type\" (one of 'reminder'|'bill_link'|'email_summary'), "
+        "\"task_type\" (one of 'reminder'|'bill_link'|'email_summary'|'order'), "
         "\"schedule_rule\" (an iCalendar RRULE string like 'RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0'), "
         "\"text\" (the message to send).\n\n"
         "Examples:\n"
         "Input: \"Remind me to drink water every 2 hours\"\n"
         "Output:\n"
         '{\"task_type\":\"reminder\",\"schedule_rule\":\"RRULE:FREQ=HOURLY;INTERVAL=2\",\"text\":\"Drink water\"}\n\n'
-        "Input: \"Send me a message every Monday at 6pm saying buy groceries\"\n"
+        "Input: \"Order milk every 2 days from Capital Store\"\n"
         "Output:\n"
-        '{\"task_type\":\"reminder\",\"schedule_rule\":\"RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=18;BYMINUTE=0\",\"text\":\"Buy groceries\"}\n\n'
+        '{\"task_type\":\"order\",\"schedule_rule\":\"RRULE:FREQ=DAILY;INTERVAL=2\",\"text\":\"Order milk from Capital Store\"}\n\n'
         "Now convert this input to JSON:\n"
-        f"Input: {command_text}\n"
-        "Output:"
+        f"Input: {command_text}\nOutput:"
     )
 
     raw = call_ollama(system_prompt)
     plan = None
     if raw:
-        # Debug: show the raw response (trimmed)
-        preview = raw.strip()
-        if len(preview) > 800:
-            preview = preview[:800] + " ... (truncated)"
-        print("🔎 Model raw response preview:")
-        print(preview)
         try:
             plan = extract_json_from_text(raw)
         except Exception as e:
             print("⚠️ Failed to parse LLM response:", e)
 
-    # fallback plan if parsing failed or no model reply
     if not plan or not isinstance(plan, dict):
-        fallback_text = command_text
-        # Very small heuristic to normalize
-        fallback_text = fallback_text.replace("remind me to", "").strip().capitalize()
+        # fallback
         plan = {
             "task_type": "reminder",
-            "schedule_rule": "RRULE:FREQ=HOURLY;INTERVAL=2",
-            "text": fallback_text or "Reminder"
+            "schedule_rule": "RRULE:FREQ=DAILY;INTERVAL=1",
+            "text": command_text,
         }
-        print("⚠️ Using fallback plan:", plan)
 
-    # Validate keys
-    if any(k not in plan for k in ("task_type", "schedule_rule", "text")):
-        print("⚠️ Plan missing required keys; using fallback.")
-        plan = {
-            "task_type": "reminder",
-            "schedule_rule": "RRULE:FREQ=HOURLY;INTERVAL=2",
-            "text": command_text.replace("remind me to", "").strip().capitalize() or "Reminder"
-        }
+    # detect store & item
+    store_info = detect_store_and_item(command_text)
+    if store_info["store"]:
+        plan["task_type"] = "order"
+        plan["extra"] = store_info
+        print(f"🛒 Detected order task → Item: {store_info['item']} from {store_info['store']}")
 
     internal = build_internal_plan(plan)
+    # 🛒 Detect if it's an order
+    if "order" in command_text.lower() and "from" in command_text.lower():
+        try:
+            parts = command_text.lower().split("from")
+            item = parts[0].replace("order", "").strip()
+            store_name = parts[1].strip()
+            print(f"🛒 Detected order task → Item: {item} from {store_name}")
+
+            from src.tools import orders
+            store = orders.find_store_by_name(store_name)
+
+            if store:
+                orders.send_order_to_store(store, item, TELEGRAM_CHAT_ID)
+                print(f"✅ Order sent to {store_name}")
+            else:
+                from src.tools.messaging import send_message
+                send_message(TELEGRAM_CHAT_ID, f"⚠️ I can’t find *{store_name}* in the store list.\nAsk them to register using /register_store {store_name}.")
+        except Exception as e:
+            print(f"⚠️ Order parsing failed: {e}")
+
     task_id = create_task(user_id, plan["task_type"], internal, plan["schedule_rule"], 1)
     print(f"✅ Task created from natural language (id={task_id})")
     print(json.dumps(plan, indent=2))

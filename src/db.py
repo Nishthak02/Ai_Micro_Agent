@@ -38,9 +38,10 @@ def create_task(user_id: int, task_type: str, plan: dict, schedule_rule: str = "
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO task (user_id, type, params_json, schedule_rule, enabled) VALUES (?, ?, ?, ?, ?)",
-        (user_id, task_type, json.dumps(plan), schedule_rule, enabled)
+    "INSERT INTO task (user_id, task_type, params_json, schedule_rule, enabled) VALUES (?, ?, ?, ?, ?)",
+    (user_id, task_type, json.dumps(plan), schedule_rule, enabled)
     )
+
     conn.commit()
     task_id = cur.lastrowid
     conn.close()
@@ -48,10 +49,10 @@ def create_task(user_id: int, task_type: str, plan: dict, schedule_rule: str = "
 
 
 def list_tasks():
-    """Return all stored tasks."""
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, type, params_json, schedule_rule, enabled FROM task")
+    cur.execute("SELECT id, task_type, params_json, schedule_rule, enabled FROM task")
     rows = cur.fetchall()
     conn.close()
     return rows
+
