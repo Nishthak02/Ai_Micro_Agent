@@ -26,18 +26,23 @@ def call_ollama(prompt: str):
 
 
 def extract_json_from_text(text: str):
-    """Try to extract a JSON object from Ollama output."""
-    if not text:
-        raise ValueError("No text to parse")
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-    m = re.search(r"(\{(?:.|\s)*\})", text)
-    if m:
-        return json.loads(m.group(1))
-    raise ValueError("Could not extract valid JSON from model output")
+    """
+    Extract and parse the first valid JSON object from a text string.
+    Handles messy LLM responses gracefully.
+    """
+    # find first {...} block
+    match = re.search(r'\{[\s\S]*\}', text)
+    if not match:
+        raise ValueError("No JSON object found in text")
 
+    json_str = match.group(0)
+
+    # remove trailing commas and comments (// style)
+    json_str = re.sub(r'//.*', '', json_str)
+    json_str = re.sub(r',\s*}', '}', json_str)
+    json_str = re.sub(r',\s*]', ']', json_str)
+
+    return json.loads(json_str)
 
 def detect_store_and_item(text: str):
     """

@@ -126,3 +126,4 @@ def send_daily_email_summary(chat_id: str, max_results: int = 5):
     except Exception as e:
         print("❌ Email summary error:", e)
         send_message(chat_id, f"⚠️ Failed to generate email summary: {e}")
+
