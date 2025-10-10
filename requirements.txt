@@ -1,40 +1,13 @@
-# apscheduler
-# python-telegram-bot
-# pytz
-# python-dotenv
-# requests
-# sqlalchemy
-# alembic
-
-
-# Core Framework
+# requirements.txt
 python-dotenv==1.1.1
 requests==2.32.3
-
-# Scheduling and Timing
 APScheduler==3.11.0
 pytz==2025.2
-
-# Telegram Bot Integration
 aiohttp==3.10.5
-
-# Database (SQLite is built into Python, so no extra dependency)
-
-# Local LLM & Planner
-ollama==0.1.9   # Optional: skip if calling Ollama locally via subprocess
-
-# ORM & Migration (if needed)
+ollama==0.1.9
 SQLAlchemy==2.0.43
 alembic==1.16.5
-
-# Logging and Utilities
-colorama==0.4.6
-
-# Optional for email, if you later integrate IMAP summarizer
-# imapclient==2.3.1
-# beautifulsoup4==4.12.3
-
-# Optional for Google Calendar API (future phase)
-# google-api-python-client==2.153.0
-# google-auth-httplib2==0.2.0
-# google-auth-oauthlib==1.2.1
+google-auth>=2.19.0
+google-api-python-client==2.153.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.1

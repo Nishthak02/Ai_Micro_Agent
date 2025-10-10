@@ -7,21 +7,23 @@ import threading
 import datetime
 import requests
 import pytz
+from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from dotenv import load_dotenv
 
 # --- Load environment ---
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"))
 
 # --- local imports (keep ordering/chat/registration logic intact) ---
-from src.db import get_conn, create_task
+from src.db import get_conn, create_task, init_db
 from src.tools.messaging import send_message
 from src.tools import orders
-
-# planner helpers from your planner module (uses Ollama)
 from src.planner import call_ollama, extract_json_from_text
+from src.tools import gmail_oauth
+
+# ensure DB/tables exist (init if needed)
+init_db()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
@@ -66,7 +68,7 @@ def register_user(chat_id, name, username):
         )
     """)
     conn.commit()
-    now = datetime.datetime.now(TZ).isoformat()
+    now = datetime.datetime.now(TZ).isoformat()   
     cur.execute("""
         INSERT OR REPLACE INTO user_registry (chat_id, name, username, last_seen)
         VALUES (?, ?, ?, ?)
@@ -114,11 +116,14 @@ def parse_rrule_to_interval_kwargs(rrule_str: str):
 def schedule_job_for_task(task_id: int, params: dict, schedule_rule: str):
     """
     Given DB task id + params (internal plan) and schedule_rule, schedule an APScheduler job.
-    params must contain: params["calls"][0]["args"]["chat_id"] and ["text"]
+    params must contain either:
+      - params["calls"][0]["args"]["chat_id"] and ["text"]  (messaging)
+      - OR params["calls"][0]["args"] for order (store_identifier, item)
+    This function will use the params "plan" field to decide behavior.
     """
     try:
-        chat_id = str(params["calls"][0]["args"]["chat_id"])
-        text = params["calls"][0]["args"]["text"]
+        # preserve params as dict (it may already be dict)
+        plan_name = params.get("plan", "")
     except Exception:
         return False
 
@@ -132,17 +137,51 @@ def schedule_job_for_task(task_id: int, params: dict, schedule_rule: str):
         except Exception:
             pass
 
+    def _run_plan(p=params):
+        """
+        When run by scheduler: execute the plan.
+        Supports messaging plans and order plans.
+        """
+        try:
+            # messaging plan (default)
+            if p.get("plan") in ("reminder", "email_summary", "bill_link", ""):
+                try:
+                    chat_id = str(p["calls"][0]["args"]["chat_id"])
+                    text = p["calls"][0]["args"].get("text", "")
+                    send_message(chat_id, text)
+                except Exception as e:
+                    print("⚠️ scheduled messaging plan failed:", e)
+            # order plan
+            elif p.get("plan") == "order":
+                try:
+                    args = p["calls"][0]["args"]
+                    buyer_chat_id = args.get("chat_id") or args.get("user_chat_id")
+                    store_identifier = args.get("store_identifier") or args.get("store")
+                    item = args.get("item")
+                    # call orders.place_order(buyer_chat_id, store_identifier, item)
+                    orders.place_order(str(buyer_chat_id), store_identifier, item)
+                except Exception as e:
+                    print("⚠️ scheduled order execution failed:", e)
+            else:
+                # fallback messaging
+                try:
+                    chat_id = str(p["calls"][0]["args"]["chat_id"])
+                    text = p["calls"][0]["args"].get("text", "")
+                    send_message(chat_id, text)
+                except Exception as e:
+                    print("⚠️ scheduled fallback plan failed:", e)
+        except Exception as e:
+            print("⚠️ _run_plan outer error:", e)
+
     # ONCE with RUN_AT
     if schedule_rule and "FREQ=ONCE" in schedule_rule:
         m = re.search(r"RUN_AT=([^;]+)", schedule_rule)
         if m:
             try:
-                run_dt = datetime.datetime.fromisoformat(m.group(1))
+                run_dt = datetime.datetime.datetime.fromisoformat(m.group(1))
                 if run_dt.tzinfo is None:
                     run_dt = TZ.localize(run_dt)
-                scheduler.add_job(lambda c=chat_id, t=text: send_message(c, t),
-                                  trigger=DateTrigger(run_date=run_dt),
-                                  id=job_id, replace_existing=True)
+                scheduler.add_job(_run_plan, trigger=DateTrigger(run_date=run_dt), id=job_id, replace_existing=True)
                 return True
             except Exception as e:
                 print("⚠️ schedule_job_for_task (ONCE) error:", e)
@@ -152,21 +191,19 @@ def schedule_job_for_task(task_id: int, params: dict, schedule_rule: str):
     kw = parse_rrule_to_interval_kwargs(schedule_rule)
     if kw:
         try:
-            # create IntervalTrigger with TZ and schedule
             trig = IntervalTrigger(timezone=TZ, **kw)
-            scheduler.add_job(lambda c=chat_id, t=text: send_message(c, t),
-                              trigger=trig, id=job_id, replace_existing=True)
+            scheduler.add_job(_run_plan, trigger=trig, id=job_id, replace_existing=True, max_instances=1)
             return True
         except Exception as e:
             print("⚠️ schedule_job_for_task (interval) error:", e)
             return False
 
-    # fallback: schedule once in 60 seconds
+    # cron-like weekly/daily with BYHOUR/BYMINUTE/BYDAY -> convert to DateTrigger with next run calc,
+    # but simplest approach: if schedule_rule contains BYHOUR/BYMINUTE or WEEKLY: use CronTrigger via APScheduler Cron support.
     try:
-        run_dt = datetime.datetime.now(TZ) + datetime.timedelta(seconds=60)
-        scheduler.add_job(lambda c=chat_id, t=text: send_message(c, t),
-                          trigger=DateTrigger(run_date=run_dt),
-                          id=job_id, replace_existing=True)
+        # fallback: schedule once in 60 seconds
+        run_dt = datetime.datetime.datetime.now(TZ) + datetime.timedelta(seconds=60)
+        scheduler.add_job(_run_plan, trigger=DateTrigger(run_date=run_dt), id=job_id, replace_existing=True)
         return True
     except Exception as e:
         print("⚠️ schedule_job_for_task fallback error:", e)
@@ -179,16 +216,26 @@ def persist_task_and_schedule(user_chat_id: str, plan_obj: dict):
     then schedule it with APScheduler.
     Returns task_id or None.
     """
-    # build internal plan for this user's chat
+    # build internal plan for this user's chat (matches other parts of code)
     internal = {
         "plan": plan_obj.get("task_type", "reminder"),
         "calls": [
             {
-                "tool": "messaging.send_message",
-                "args": {"chat_id": str(user_chat_id), "text": plan_obj.get("text", "Reminder")}
+                "tool": "messaging.send_message" if plan_obj.get("task_type") != "order" else "orders.place_order",
+                "args": {}
             }
         ]
     }
+
+    if plan_obj.get("task_type") == "order":
+        # args needed by schedule runner
+        internal["calls"][0]["args"] = {
+            "chat_id": str(user_chat_id),
+            "store_identifier": plan_obj.get("extra", {}).get("store") or plan_obj.get("store") or plan_obj.get("store_name"),
+            "item": plan_obj.get("extra", {}).get("item") or plan_obj.get("item") or plan_obj.get("text")
+        }
+    else:
+        internal["calls"][0]["args"] = {"chat_id": str(user_chat_id), "text": plan_obj.get("text", "Reminder")}
 
     # find user_id from user_registry if possible
     conn = get_conn()
@@ -199,7 +246,6 @@ def persist_task_and_schedule(user_chat_id: str, plan_obj: dict):
         user_id = r[0]
     else:
         user_id = 1
-
     conn.close()
 
     # try create_task() first (if available/signature matches)
@@ -270,7 +316,6 @@ def process_message(msg):
         if not text:
             return
 
-
         # keep user registry logic unchanged
         register_user(chat_id, display_name, username)
         text_lower = text.strip().lower()
@@ -315,18 +360,36 @@ def process_message(msg):
         except Exception:
             pass
 
-        text_lower = text.strip().lower()
-
-        # --- /start (keep exactly) ---
+        # --- /start (updated manual text) ---
         if text_lower.startswith("/start"):
-            send_message(chat_id,
-                "👋 Hello! I'm your AI ordering + reminder assistant.\n\n"
-                "🛒 Use `/remind order <item> from <store>` to place an order.\n"
-                "⏰ Use `/remind <task> in 5 minutes` or `/remind <task> every 2 hours` for reminders.\n\n"
-                "Example:\n"
-                "`/remind remind me to blink every 5 seconds`\n"
-                "`/remind order milk from Capital Store`"
+            welcome_text = (
+                "👋 Hello! I’m your *AI Micro Agent* — your smart assistant for reminders, "
+                "orders, and Gmail digests.\n\n"
+                "Here’s what I can do:\n\n"
+                "🕒 *Reminders*\n"
+                "• `/remind drink water every 2 hours`\n"
+                "• `/list_reminders` — show all reminders\n"
+                "• `/delete_reminder <id>` — delete one\n\n"
+                "🛒 *Orders*\n"
+                "• `/remind order milk from Capital Store` — place an immediate order\n"
+                "• `/remind order milk in 2 hours from Capital Store` — one-time delayed order\n"
+                "• `/remind order milk every 2 days from Capital Store` — recurring order\n"
+                "• Chat continues until `/endchat`\n\n"
+                "💌 *Email Digest*\n"
+                "• `/link_gmail` — link Gmail\n"
+                "• `/emailsummary` — fetch immediate summary\n"
+                "• `/emailsummary 10` — fetch last 10 emails\n"
+                "• `/emailsummary every day at 10am` — schedule daily digest\n"
+                "• `/emailsummary weekly on Mon at 9am` — schedule weekly digest\n"
+                "• `/disconnect_gmail` — unlink Gmail\n"
+                "• `/check_gmail` — check Gmail link status\n\n"
+                "🧾 *Jobs & Info*\n"
+                "• `/list_jobs` — show scheduled jobs\n"
+                "• `/whoami` — your profile\n"
+                "• `/manual` — see this guide again\n\n"
+                "Let’s get started! 🚀"
             )
+            send_message(chat_id, welcome_text, parse_mode="Markdown")
             return
 
         # --- /whoami (kept) ---
@@ -342,7 +405,8 @@ def process_message(msg):
             else:
                 send_message(chat_id, f"⚠️ You’re not registered yet. Try sending /start.")
             return
-        # 🧾 --- list reminders ---
+
+        # 🧾 --- list reminders (kept) ---
         if text_lower.startswith("/list_reminders"):
             try:
                 conn = get_conn()
@@ -360,11 +424,13 @@ def process_message(msg):
                     try:
                         params = json.loads(params_json)
                         msg_text = params["calls"][0]["args"].get("text", "")
+                        plan = params.get("plan", "")
                     except Exception:
                         msg_text = "(unreadable)"
-                    lines.append(f"🆔 *{tid}* → {msg_text}\n   ⏱ {rule}")
+                        plan = "unknown"
+                    lines.append(f"🆔 *{tid}* → ({plan}) {msg_text}\n   ⏱ {rule}")
 
-                msg_body = "📋 *Active Reminders:*\n\n" + "\n\n".join(lines)
+                msg_body = "📋 *Active Reminders & Orders:*\n\n" + "\n\n".join(lines)
                 msg_body += "\n\nUse `/delete_reminder <id>` to delete a reminder."
                 send_message(chat_id, msg_body)
             except Exception as e:
@@ -401,6 +467,165 @@ def process_message(msg):
                 send_message(chat_id, f"⚠️ Could not delete reminder {rid}: {e}")
             return
 
+        # --- /link_gmail command ---
+        if text_lower.startswith("/link_gmail") or text_lower.startswith("/connect_gmail"):
+            try:
+                from src.tools.email_summary import start_gmail_oauth
+                send_message(chat_id, "🔗 Starting Gmail link process...")
+                start_gmail_oauth(chat_id)
+            except Exception as e:
+                send_message(chat_id, f"⚠️ Failed to start Gmail linking: {e}")
+            return
+
+        # --- /check_gmail command ---
+        if text_lower.startswith("/check_gmail"):
+            try:
+                from src.tools.email_summary import check_gmail_link
+                linked = check_gmail_link(chat_id)
+                if linked:
+                    send_message(chat_id, "✅ Your Gmail is linked successfully.")
+                else:
+                    send_message(chat_id, "⚠️ Your Gmail is not linked yet. Use /link_gmail to link.")
+            except Exception as e:
+                send_message(chat_id, f"⚠️ Failed to check Gmail link: {e}")
+            return
+
+        # --- /disconnect_gmail command ---
+        if text_lower.startswith("/disconnect_gmail"):
+            try:
+                from src.tools.email_summary import disconnect_gmail
+                disconnect_gmail(chat_id)
+                send_message(chat_id, "✅ Your Gmail has been unlinked.")
+            except Exception as e:
+                send_message(chat_id, f"⚠️ Failed to unlink Gmail: {e}")
+            return
+
+        # --- /manual command (kept) ---
+        if text_lower.startswith("/manual"):
+            manual_text = (
+                "📖 *AI Micro Agent User Guide*\n\n"
+                "I can help you with reminders, orders, and Gmail summaries. Here’s how to use me:\n\n"
+                "🕒 *Reminders*\n"
+                "• `/remind drink water every 2 hours` — set a reminder\n"
+                "• `/list_reminders` — list all your reminders\n"
+                "• `/delete_reminder <id>` — delete a reminder by its ID\n\n"
+                "🛒 *Orders*\n"
+                "• `/remind order milk from Capital Store` — immediate order\n"
+                "• `/remind order milk in 2 hours from Capital Store` — one-time delayed order\n"
+                "• `/remind order milk every 2 days from Capital Store` — recurring order\n"
+                "• Use `/endchat` to finish a buyer<->store chat\n\n"
+                "💌 *Email Digest*\n"
+                "• `/link_gmail` — link your Gmail account\n"
+                "• `/emailsummary` — get an immediate Gmail digest (default 5)\n"
+                "• `/emailsummary 10` — get last 10 emails now\n"
+                "• `/emailsummary every day at 10am` — schedule daily digest\n"
+                "• `/emailsummary weekly on Mon at 9am` — schedule weekly digest\n\n"
+                "🧾 *Jobs & Info*\n"
+                "• `/list_jobs` — show scheduled jobs (next run times)\n"
+                "• `/whoami` — see your profile info\n"
+                "• `/status` — system job summary\n\n"
+                "Feel free to ask for help! 🚀"
+            )
+            send_message(chat_id, manual_text, parse_mode="Markdown")
+            return
+
+        # --- /list_jobs command ---
+        if text_lower.startswith("/list_jobs"):
+            try:
+                jobs = scheduler.get_jobs()
+                if not jobs:
+                    send_message(chat_id, "ℹ️ No active scheduled jobs.")
+                    return
+
+                lines = []
+                for job in jobs:
+                    nid = job.id
+                    try:
+                        nrt = job.next_run_time
+                        if nrt:
+                            nrt_local = nrt.astimezone(TZ).strftime("%Y-%m-%d %H:%M:%S")
+                        else:
+                            nrt_local = "—"
+                    except Exception:
+                        nrt_local = "—"
+                    lines.append(f"🆔 *{nid}*\n⏰ Next run: {nrt_local}")
+
+                msg = "🧾 *Scheduled Jobs:*\n\n" + "\n\n".join(lines)
+                send_message(chat_id, msg, parse_mode="Markdown")
+            except Exception as e:
+                send_message(chat_id, f"⚠️ Failed to list jobs: {e}")
+            return
+
+        # --- /emailsummary handler (immediate, daily, weekly, N latest) ---
+        if text_lower.startswith("/emailsummary"):
+            try:
+                # immediate with optional count: "/emailsummary 10"
+                m_count = re.match(r"^/emailsummary\s+(\d+)\s*$", text_lower)
+                if m_count:
+                    maxn = int(m_count.group(1))
+                    send_message(chat_id, f"📬 Fetching your last {maxn} emails... please wait ⏳")
+                    gmail_oauth.send_daily_email_summary(chat_id, max_results=maxn)
+                    return
+
+                # daily schedule: "emailsummary every day at 11am"
+                m_daily = re.search(r"every\s+day\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text_lower)
+                if m_daily:
+                    hour = int(m_daily.group(1))
+                    minute = int(m_daily.group(2) or 0)
+                    ampm = m_daily.group(3)
+                    if ampm == "pm" and hour < 12:
+                        hour += 12
+                    elif ampm == "am" and hour == 12:
+                        hour = 0
+                    rrule = f"RRULE:FREQ=DAILY;BYHOUR={hour};BYMINUTE={minute}"
+                    plan = {"task_type": "email_summary", "schedule_rule": rrule, "text": "Daily Gmail summary"}
+                    tid = persist_task_and_schedule(chat_id, plan)
+                    if tid:
+                        send_message(chat_id, f"✅ Scheduled Gmail summary every day at {hour:02d}:{minute:02d}. (task id={tid})")
+                    else:
+                        send_message(chat_id, "⚠️ Failed to schedule daily Gmail summary.")
+                    return
+
+                # weekly schedule: "emailsummary every week on monday at 9am"
+                weekday_map = {
+                    "monday": "MO", "mon": "MO",
+                    "tuesday": "TU", "tue": "TU",
+                    "wednesday": "WE", "wed": "WE",
+                    "thursday": "TH", "thu": "TH",
+                    "friday": "FR", "fri": "FR",
+                    "saturday": "SA", "sat": "SA",
+                    "sunday": "SU", "sun": "SU"
+                }
+                m_weekly = re.search(
+                    r"(?:every|weekly)\s*(?:week)?(?:\s*on)?\s*(mon|monday|tue|tuesday|wed|wednesday|thu|thursday|fri|friday|sat|saturday|sun|sunday)\b\s*(?:at\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?",
+                    text_lower,
+                )
+                if m_weekly:
+                    day_token = m_weekly.group(1).lower()
+                    hour = int(m_weekly.group(2) or 9)
+                    minute = int(m_weekly.group(3) or 0)
+                    ampm = m_weekly.group(4)
+                    if ampm == "pm" and hour < 12:
+                        hour += 12
+                    elif ampm == "am" and hour == 12:
+                        hour = 0
+                    byday = weekday_map.get(day_token, day_token.upper()[:2])
+                    rrule = f"RRULE:FREQ=WEEKLY;BYDAY={byday};BYHOUR={hour};BYMINUTE={minute}"
+                    plan = {"task_type": "email_summary", "schedule_rule": rrule, "text": f"Weekly Gmail summary ({byday})"}
+                    tid = persist_task_and_schedule(chat_id, plan)
+                    if tid:
+                        send_message(chat_id, f"✅ Scheduled weekly Gmail summary on {day_token.title()} at {hour:02d}:{minute:02d}. (task id={tid})")
+                    else:
+                        send_message(chat_id, "⚠️ Failed to schedule weekly Gmail summary.")
+                    return
+
+                # default immediate fetch
+                send_message(chat_id, "📬 Fetching your Gmail summary... please wait ⏳")
+                gmail_oauth.send_daily_email_summary(chat_id, max_results=5)
+            except Exception as e:
+                send_message(chat_id, f"⚠️ Failed to get email summary: {e}")
+            return
+
         # --- /remind command (first check order syntax) ---
         if text_lower.startswith("/remind"):
             parts = text.split(" ", 1)
@@ -411,14 +636,83 @@ def process_message(msg):
             nl_original = parts[1].strip()
             nl = nl_original.lower()
 
-            # ordering branch (unchanged)
+            # ----- ORDER branch (supports one-time + recurring) -----
             if "order" in nl and "from" in nl:
                 idx = nl.rfind(" from ")
                 if idx == -1:
                     send_message(chat_id, "❌ Couldn't parse store name.")
                     return
+
                 item_part = nl_original[:idx].replace("order", "", 1).strip()
                 store_part = nl_original[idx + len(" from "):].strip()
+
+                # 1) Recurring pattern detection (every X unit, optional at HH:MM)
+                m_recurring = re.search(
+                    r"every\s*(\d+)?\s*(second|seconds|minute|minutes|hour|hours|day|days|week|weeks)\b(?:\s*at\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?",
+                    nl
+                )
+
+                if m_recurring:
+                    num = int(m_recurring.group(1) or 1)
+                    unit = m_recurring.group(2)
+                    hour = int(m_recurring.group(3) or 9)
+                    minute = int(m_recurring.group(4) or 0)
+                    ampm = m_recurring.group(5)
+
+                    if ampm == "pm" and hour < 12:
+                        hour += 12
+                    elif ampm == "am" and hour == 12:
+                        hour = 0
+
+                    if "second" in unit:
+                        rrule = f"RRULE:FREQ=SECONDLY;INTERVAL={num}"
+                    elif "minute" in unit:
+                        rrule = f"RRULE:FREQ=MINUTELY;INTERVAL={num}"
+                    elif "hour" in unit:
+                        rrule = f"RRULE:FREQ=HOURLY;INTERVAL={num}"
+                    elif "day" in unit:
+                        rrule = f"RRULE:FREQ=DAILY;INTERVAL={num};BYHOUR={hour};BYMINUTE={minute}"
+                    elif "week" in unit:
+                        rrule = f"RRULE:FREQ=WEEKLY;INTERVAL={num};BYHOUR={hour};BYMINUTE={minute}"
+                    else:
+                        rrule = "RRULE:FREQ=DAILY;INTERVAL=1"
+
+                    # Build internal plan (order)
+                    internal = {
+                        "plan": "order",
+                        "calls": [
+                            {
+                                "tool": "orders.place_order",
+                                "args": {"chat_id": str(chat_id), "store_identifier": store_part, "item": item_part}
+                            }
+                        ]
+                    }
+
+                    # Deduplicate: ensure no identical enabled task already exists
+                    try:
+                        conn = get_conn()
+                        cur = conn.cursor()
+                        cur.execute("SELECT id FROM task WHERE task_type=? AND enabled=1 AND schedule_rule=? AND params_json=?", 
+                                    ("order", rrule, json.dumps(internal)))
+                        exists = cur.fetchone()
+                        conn.close()
+                        if exists:
+                            send_message(chat_id, "ℹ️ A similar recurring order already exists. Not creating duplicate.")
+                            return
+                    except Exception:
+                        # on DB error: continue (won't block scheduling)
+                        pass
+
+                    # persist and schedule
+                    plan = {"task_type": "order", "schedule_rule": rrule, "text": f"Recurring order for {item_part} from {store_part}"}
+                    tid = persist_task_and_schedule(chat_id, plan)
+                    if tid:
+                        send_message(chat_id, f"✅ Scheduled recurring order (task id={tid}) for *{item_part}* from *{store_part}*.")
+                    else:
+                        send_message(chat_id, "⚠️ Failed to schedule recurring order.")
+                    return
+
+                # 2) One-time delayed order (in X seconds/minutes/hours)
                 m = re.search(r"in (\d+)\s*(second|seconds|minute|minutes|hour|hours)\b", nl)
                 if m:
                     num = int(m.group(1))
@@ -426,27 +720,20 @@ def process_message(msg):
                     delay = num if "second" in unit else num * 60 if "minute" in unit else num * 3600
                     schedule_place_order(delay, chat_id, store_part, item_part)
                     send_message(chat_id, f"✅ Scheduled order for *{item_part}* from *{store_part}* in {num} {unit}.")
-                else:
-                    orders.place_order(chat_id, store_part, item_part)
+                    return
+
+                # 3) Immediate order (fallback)
+                orders.place_order(chat_id, store_part, item_part)
                 return
 
             # ----- Reminder branch (LLM + DB + schedule) -----
-            # acknowledge and call Ollama like before
             send_message(chat_id, f"Got it — I'll create a reminder for: \"{nl_original}\". Processing with Ollama...")
-            # build system prompt (same style as planner.parse_command)
             system_prompt = (
                 "You are a JSON-only generator. Convert the user's instruction into a single JSON object "
                 "and output only that JSON object and nothing else. The JSON must have exactly these keys: "
                 "\"task_type\" (one of 'reminder'|'bill_link'|'email_summary'), "
                 "\"schedule_rule\" (an iCalendar RRULE string like 'RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0'), "
                 "\"text\" (the message to send).\n\n"
-                "Examples:\n"
-                "Input: \"Remind me to drink water every 2 hours\"\n"
-                "Output:\n"
-                '{\"task_type\":\"reminder\",\"schedule_rule\":\"RRULE:FREQ=HOURLY;INTERVAL=2\",\"text\":\"Drink water\"}\n\n'
-                "Input: \"Send me a message every Monday at 6pm saying buy groceries\"\n"
-                "Output:\n"
-                '{\"task_type\":\"reminder\",\"schedule_rule\":\"RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=18;BYMINUTE=0\",\"text\":\"Buy groceries\"}\n\n'
                 "Now convert this input to JSON:\n"
                 f"Input: {nl_original}\n"
                 "Output:"
@@ -460,7 +747,6 @@ def process_message(msg):
 
             plan = None
             if raw:
-                # debug preview trimmed
                 preview = raw.strip()
                 if len(preview) > 800:
                     preview = preview[:800] + " ... (truncated)"
@@ -471,9 +757,7 @@ def process_message(msg):
                 except Exception as e:
                     print("⚠️ Failed to parse LLM response:", e)
 
-            # fallback if LLM fails
             if not plan or not isinstance(plan, dict):
-                # try to normalize text into reminder text
                 fallback_text = nl_original.replace("remind me to", "").strip().capitalize()
                 plan = {
                     "task_type": "reminder",
@@ -482,22 +766,27 @@ def process_message(msg):
                 }
                 print("⚠️ Using fallback plan:", plan)
 
-            # small heuristic override: if user explicitly used 'second/minute/hour/day' in input, prefer that
+            # heuristic override for explicit time intervals
             txt_lower = nl_original.lower()
-            if "second" in txt_lower:
-                rrule = "RRULE:FREQ=SECONDLY;INTERVAL=1"
-            elif "minute" in txt_lower:
-                rrule = "RRULE:FREQ=MINUTELY;INTERVAL=1"
-            elif "hour" in txt_lower:
-                rrule = "RRULE:FREQ=HOURLY;INTERVAL=1"
-            elif "day" in txt_lower:
-                rrule = "RRULE:FREQ=DAILY;INTERVAL=1"
+            m = re.search(r'(\d+)\s*(second|seconds|minute|minutes|hour|hours|day|days)\b', txt_lower)
+            if m:
+                num = int(m.group(1))
+                unit = m.group(2)
+                if 'second' in unit:
+                    rrule = f"RRULE:FREQ=SECONDLY;INTERVAL={max(1, num)}"
+                elif 'minute' in unit:
+                    rrule = f"RRULE:FREQ=MINUTELY;INTERVAL={max(1, num)}"
+                elif 'hour' in unit:
+                    rrule = f"RRULE:FREQ=HOURLY;INTERVAL={max(1, num)}"
+                elif 'day' in unit:
+                    rrule = f"RRULE:FREQ=DAILY;INTERVAL={max(1, num)}"
+                else:
+                    rrule = plan.get("schedule_rule", "RRULE:FREQ=HOURLY;INTERVAL=1")
             else:
-                # keep LLM provided schedule_rule if present
                 rrule = plan.get("schedule_rule", "RRULE:FREQ=HOURLY;INTERVAL=2")
+
             plan["schedule_rule"] = rrule
 
-            # store in DB + schedule job
             tid = persist_task_and_schedule(chat_id, plan)
             if tid:
                 send_message(chat_id, f"✅ Created reminder (task id={tid}). I will remind you per the schedule.")
@@ -505,7 +794,7 @@ def process_message(msg):
                 send_message(chat_id, "⚠️ Failed to create reminder. Please try again.")
             return
 
-        # unknown - ignore or simple help (kept simple)
+        # unknown - ignore (kept simple)
         # send_message(chat_id, "Unknown command. Use /remind or /endchat.")
     except Exception as e:
         print("⚠️ process_message errror:", e)
@@ -553,3 +842,4 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+

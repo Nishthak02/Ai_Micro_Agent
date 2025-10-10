@@ -1,5 +1,7 @@
 from typing import Dict, Any
+from .tools import gmail_oauth
 from .tools import messaging, payments, email_tool, calendar_tool
+from .tools import messaging, payments, email_tool, calendar_tool, email_summary
 
 
 TOOL_MAP = {
@@ -7,6 +9,8 @@ TOOL_MAP = {
 'payments.generate_upi': payments.generate_upi_link,
 'email.summarize': email_tool.summarize_unread,
 'calendar.create_event': calendar_tool.create_event,
+'email.summary': email_summary.send_daily_email_summary,
+
 }
 
 

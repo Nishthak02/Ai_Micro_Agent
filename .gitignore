@@ -1,19 +1,57 @@
+# ----------------------------
 # Python
+# ----------------------------
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-.venv/
-.env
+*.pdb
 
-# VS Code / Editors
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Environment variables
+.env
+.env.*
+credentials.json
+
+# ----------------------------
+# Database / runtime files
+# ----------------------------
+ai_agent.db
+src/.tg_offset
+tokens/
+logs/
+*.sqlite3
+*.db-journal
+
+# ----------------------------
+# Editor / IDE configs
+# ----------------------------
 .vscode/
 .idea/
+*.sublime-project
+*.sublime-workspace
 
-# OS files
+# ----------------------------
+# OS-specific junk files
+# ----------------------------
 .DS_Store
 Thumbs.db
 
-# Offset / temp files
-src/.tg_offset
-ai_agent.db
+# ----------------------------
+# Backups / local helpers
+# ----------------------------
+backup.py
+*.bak
+*.tmp
+*.log
+
+# ----------------------------
+# Build / cache folders
+# ----------------------------
+build/
+dist/
+*.egg-info/

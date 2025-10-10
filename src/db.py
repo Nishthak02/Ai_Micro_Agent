@@ -16,6 +16,7 @@ def init_db():
             conn.commit()
 
 def get_conn():
+    print(f"📂 Connecting to DB file: {DB_FILE}")  # <-- add this line
     return sqlite3.connect(DB_FILE)
 
 
@@ -38,9 +39,10 @@ def create_task(user_id: int, task_type: str, plan: dict, schedule_rule: str = "
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-    "INSERT INTO task (user_id, task_type, params_json, schedule_rule, enabled) VALUES (?, ?, ?, ?, ?)",
-    (user_id, task_type, json.dumps(plan), schedule_rule, enabled)
+        "INSERT INTO task (user_id, type, params_json, schedule_rule, enabled) VALUES (?, ?, ?, ?, ?)",
+        (user_id, task_type, json.dumps(plan), schedule_rule, enabled)
     )
+
 
     conn.commit()
     task_id = cur.lastrowid
@@ -56,3 +58,5 @@ def list_tasks():
     conn.close()
     return rows
 
+# Auto initialize database if missing
+init_db()

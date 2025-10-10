@@ -76,6 +76,16 @@ def build_internal_plan(plan_obj):
                 }
             ],
         }
+    elif task_type == "email_summary":
+        return {
+            "plan": task_type,
+            "calls": [
+                {
+                    "tool": "email.summary",
+                    "args": {"chat_id": TELEGRAM_CHAT_ID}
+                }
+            ],
+        }
 
     # default reminder
     return {
@@ -104,6 +114,9 @@ def parse_command(command_text: str, user_id: int = 1):
         "Input: \"Order milk every 2 days from Capital Store\"\n"
         "Output:\n"
         '{\"task_type\":\"order\",\"schedule_rule\":\"RRULE:FREQ=DAILY;INTERVAL=2\",\"text\":\"Order milk from Capital Store\"}\n\n'
+        "Input: \"Give me an email summary every day at 10 am\"\n"
+        "Output:\n"
+        "{\"task_type\":\"email_summary\",\"schedule_rule\":\"RRULE:FREQ=DAILY;BYHOUR=10;BYMINUTE=0\",\"text\":\"Email Summary\"}\n\n"
         "Now convert this input to JSON:\n"
         f"Input: {command_text}\nOutput:"
     )
