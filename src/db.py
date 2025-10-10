@@ -7,11 +7,12 @@ import json
 DB_FILE = DATABASE_URL.replace('sqlite:///', '')
 
 def init_db():
+    schema_file = Path(__file__).parent / "schema.sql"  # <-- define schema_file path
     if not Path(DB_FILE).exists():
         conn = sqlite3.connect(DB_FILE)
         with closing(conn):
             cur = conn.cursor()
-            with open('migrations/init_db.sql', 'r') as f:
+            with open(schema_file, "r", encoding="utf-8") as f:
                 cur.executescript(f.read())
             conn.commit()
 
