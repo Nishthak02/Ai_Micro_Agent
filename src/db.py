@@ -12,14 +12,19 @@ DB_FILE = DATABASE_URL.replace("sqlite:///", "")
 
 
 def init_db():
-    schema_file = Path(__file__).parent / "schema.sql"  # <-- define schema_file path
-    if not Path(DB_FILE).exists():
-        conn = sqlite3.connect(DB_FILE)
-        with closing(conn):
-            cur = conn.cursor()
-            with open(schema_file, "r", encoding="utf-8") as f:
-                cur.executescript(f.read())
-            conn.commit()
+    schema_file = Path(__file__).parent / "schema.sql"
+
+    conn = sqlite3.connect(DB_FILE)
+    with closing(conn):
+        cur = conn.cursor()
+
+        if not schema_file.exists():
+            raise FileNotFoundError(f"❌ schema.sql not found at {schema_file}")
+
+        with open(schema_file, "r", encoding="utf-8") as f:
+            cur.executescript(f.read())
+
+        conn.commit()
 
 
 def get_conn():
