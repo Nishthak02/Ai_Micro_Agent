@@ -3,6 +3,7 @@ import os
 import asyncio
 import aiohttp
 import logging
+import requests
 from dotenv import load_dotenv
 
 # Force-load environment variables from project root
@@ -32,13 +33,24 @@ async def _send_async(chat_id: str, text: str, parse_mode: str | None = None):
 
 
 def send_message(chat_id: str, text: str, parse_mode: str | None = None):
-    """Wrapper for _send_async so you can call send_message(chat_id, text, parse_mode='Markdown')."""
     try:
-        asyncio.run(_send_async(chat_id, text, parse_mode))
-    except Exception as e:
-        logger.error(f"❌ Failed to send message: {e}")
-        print("❌ Telegram send error:", e)
+        payload = {
+            "chat_id": chat_id,
+            "text": text
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
 
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json=payload,
+            timeout=10
+        )
+
+        print("📤 Sent:", response.status_code, response.text)
+
+    except Exception as e:
+        print("❌ Telegram send error:", e)
 
 
 if __name__ == "__main__":
